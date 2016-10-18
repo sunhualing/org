@@ -1,0 +1,734 @@
+#+TITLE: Introduction of the OpenVSwitch command
+#+DATE: 20161017
+#+OPTIONS:   H:4 toc:t num:3
+
+#+PROPERTY:  header-args :padline no
+#+SETUPFILE: ../setup/theme-readtheorg-local.setup
+
+* Open vSwitch command Usage
+
+** Introduction
+
+Open vSwitch中有多个命令，分别有不同的作用，大致如下：
+
+ * `ovs-vsctl`用于控制ovs db
+ * `ovs-ofctl`用于管理OpenFlow switch 的 flow
+ * `ovs-dpctl`用于管理ovs的datapath
+ * `ovs-appctl`用于查询和管理ovs daemon
+
+* ovs-vsctl
+ 主要介绍`ovs-vsctl`。以下命令查询主机上已有的 OVS bridge，以及其中的 port。
+
+#+begin_src sh
+ ovs-vsctl show
+#+end_src
+
+例子
+
+#+begin_src sh
+$ ovs-vsctl show
+fc562da8-fb36-4d62-8b47-5502e72069dc
+    Bridge br-vxlan
+        Port "vxlan0"
+            Interface "vxlan0"
+                type: vxlan
+                options: {remote_ip="10.10.10.1"}
+        Port br-vxlan
+            Interface br-vxlan
+                type: internal
+        Port "veth2"
+            Interface "veth2"
+    ovs_version: "2.5.0"
+#+end_src
+
+** Bridge 相关命令
+
+*** 创建 bridge
+
+创建bridge(或switch，以下统称为bridge) `br0`
+
+> 使用选项`--may-exist`后，若欲创建的bridge已存在，该命令什么也不做，也不报错。
+
+#+begin_src sh
+ovs-vsctl [--may-exist] add-br br0
+#+end_src
+
+*** 删除bridge
+
+删除 bridge `br0`
+
+> 使用选项`--if-exists`后，若欲删除的bridge不存在，该命令什么也不做，也不报错。
+
+#+begin_src sh
+ovs-vsctl [--if-exists] del-br br0
+#+end_src
+
+**** 查询已有的 bridge
+
+
+#+begin_src sh
+ovs-vsctl list-br
+#+end_src
+
+** 端口相关命令
+
+*** 添加端口
+
+添加端口(物理端口或vNIC)eth1到bridge br0中
+
+#+begin_src sh
+ovs-vsctl [--may-exist] add-port br0 eth1
+#+end_src
+
+*** 创建 bond
+
+在br0上创建一个bond了eth0,eth1和eth2的bond端口bond0
+
+#+begin_src sh
+# ovs-vsctl add-bond <bridge> <port> <iface...>
+ovs-vsctl add-bond br0 bond0 eth0 eth1 eth2
+#+end_src
+
+*** 移除端口
+
+从br0上移除端口eth1
+
+#+begin_src sh
+ovs-vsctl [--if-exists] del-port br0 eth1
+#+end_src
+
+*** 列出端口
+
+列出br0上的端口（不包括internal port）
+
+#+begin_src sh
+ovs-vsctl list-ports br0
+#+end_src
+
+*** 查看端口详细数据
+
+列出OVS中端口eth1的详细数据
+
+#+begin_src sh
+$ ovs-vsctl list interface eth1
+#+end_src
+
+** OpenFlow 控制器相关
+
+*** 添加控制器
+
+#+begin_src sh
+# ovs-vsctl set-controller <bridge> <target...>
+ovs-vsctl set-controller br0 tcp:1.2.3.4:6633
+
+# 设置多个controller
+ovs-vsctl set-controller br0 tcp:1.2.3.4:6633 tcp:4.3.2.1:6633
+
+# 添加使用unix socket通信的controller
+ovs-vsctl set-controller br0 unix:/var/run/xx/xx.sock
+#+end_src
+
+*** 移除控制器
+
+#+begin_src sh
+ovs-vsctl del-controller br0
+#+end_src
+
+*** 查询 brige 上已配置的控制器
+
+#+begin_src sh
+ovs-vsctl get-controller br0
+#+end_src
+
+** VLAN 相关
+
+*** 配置端口为Access口
+
+设置br0中的端口eth0为VLAN 10的access口
+
+#+begin_src sh
+ovs-vsctl set port eth0 tag=10
+#+end_src
+
+添加eth1到指定bridge br0中，同时将其配置成指定VLAN 10的access端口
+
+#+begin_src sh
+ovs-svctl add-port br0 eth1 tag=10
+#+end_src
+
+*** 配置端口为Trunk口
+
+在br0上添加port eth1为VLAN 9,10,11的trunk
+
+#+begin_src sh
+ovs-vsctl add-port br0 eth1 trunk=9,10,11
+#+end_src
+
+** VXLAN 相关
+
+在bridge ovs0中添加远端IP为10.10.10.1的VXLAN endpoint端口vxlan0
+
+#+begin_src sh
+# key=100表示设置vni为100，不设置默认为0
+ovs-vsctl add-port ovs0 vxlan0 -- set interface vxlan0 type=vxlan options:remote_ip=10.10.10.1 options:key=100
+
+# 不设key值，vni默认为0
+ovs-vsctl add-port ovs0 vxlan0 -- set interface vxlan0 type=vxlan options:remote_ip=10.10.10.1
+
+# key=flow的话，表示该port的vni可以通过openflow的actions来进行设置
+# 如： actions=set_field:100->tun_id
+# 或： actions=set_tunnel:100
+ovs-vsctl add-port ovs0 vxlan0 -- set interface vxlan0 type=vxlan options:remote_ip=10.10.10.1 options:key=flow
+#+end_src
+
+** 其他
+
+*** Atomic operation
+
+一条命令创建bridge br0的，并添加eth0到br0中
+
+#+begin_src sh
+ovs-vsctl add-br br0 -- add-port br0 eth0
+#+end_src
+
+*** 创建 internal port
+
+OVS **internal port** 可以配置IP地址，普通 port 上配置的IP地址是不起作用的。在 br0 上创建一个internal port `in0`:
+
+#+begin_src sh
+ovs-vsctl add-br br0 in0 -- set interface in0 type=internal
+ip addr add 10.10.10.10/24 dev in0
+
+# 创建internal port的同时将其设置为VLAN 10的access port
+ovs-vsctl add-br br0 in1 tag=10 -- set interface in1 type=internal
+ip addr add 20.20.20.20/24 dev in1
+#+end_src
+
+*** 设置 OpenFlow port id
+
+#+begin_src sh
+# 将已在ovs中的端口veth1的OpenFlow端口设置成100
+ovs-vsctl set interface veth1 ofport_request=100
+
+# 将端口veth1添加到bridge br0中，并将veth1的OpenFlow端口设置成200
+ovs-vsctl add-port br0 veth1 -- set interface veth1 ofport_request=200
+#+end_src
+
+!!! note "Note"
+    OpenFlow的端口 id 在设置 flow 的匹配字段 in_port 以及 actions 字段的 output 中都会用到。
+    可以通过命令ovs-ofctl show br0来查看 br0 中各端口的 OpenFlow 端口 id，该 id 并不求是按顺序的。
+
+*** 设置OpenFlow版本
+
+#+begin_src sh
+ovs-vsctl set bridge br0 protocols=OpenFlow10,OpenFlow12,OpenFlow13
+#+end_src
+
+* ovs-ofctl
+  Open vSwitch ovs-ofctl Usage
+**  管理相关命令
+
+*** 查看bridge信息
+
+#+begin_src sh
+ovs-ofctl show br0
+# 显示结果中port前面的数字为OpenFlow port id
+#+end_src
+
+*** Dump flow **table**
+
+#+begin_src sh
+# Dump br0所使用的flow table
+ovs-ofctl dump-tables br0
+#+end_src
+
+*** Dump flow
+
+#+begin_src sh
+# Dump br0的所有flow
+ovs-ofctl dump-flows br0
+
+# Dump br0上匹配xx的flow
+ovs-ofctl dump-flows br0 xx
+#+end_src
+
+** Flow Table相关命令
+
+*** 添加 flow
+
+#+begin_src sh
+ovs-ofctl add-flow br0 in_port=1,actions=xx
+
+# 从文件br0flow.txt中导入Flow Table
+# 该文件必须一行一个flow
+ovs-ofctl add-flow br0 - < br0flow.txt
+#+end_src
+
+*** 修改 flow
+
+#+begin_src sh
+ovs-ofctl mod-flows br0 xxx
+
+ovs-ofctl mod-flows br0 - < br0flow.txt
+#+end_src
+
+*** 删除 flow
+
+#+begin_src sh
+# 删除br0上的所有flow
+ovs-ofctl del-flows br0
+
+# 删除br0上匹配xx的所有flow
+ovs-ofctl del-flows br0 xx
+
+# 删除br0上匹配文件br0flow.txt中各条目的flow
+ovs-ofctl del-flows br0 - < br0flow.txt
+#+end_src
+
+** Flow Syntax
+
+`ovs-ofctl`的Flow语法由一系列`field=value`形式的键值对组成，用英文逗号和空格隔开。
+
+在描述Flow时，必须要遵循IP stack常理。比如说，在flow中使用了L3(层3)的字段时，必须也要指明L2所用的协议。使用了L4的字段时，必须也要指明L2和L3所用的协议。
+
+本文档不包含 `ovs-ofctl` 对 OpenFlow 的 VMware/Nicira 扩展 flow 语法。
+
+*** in_port
+
+#+begin_src sh
+in_port=<port>
+#+end_src
+
+匹配从OpenFlow port id `<port>` 进入的数据包。OpenFlow port id可以通过`ovs-ofctl show <br>`来查看。
+
+*** dl_vlan
+
+#+begin_src sh
+dl_vlan=<vlan>
+#+end_src
+
+匹配IEEE 802.1Q VLAN tag为 `<vlan>` 的数据包。<vlan>的值应该在[0-4095]这个区间。`dl_vlan=0xffff`表示匹配没有VLAN tag的包。
+
+*** dl_vlan_pcp
+
+#+begin_src sh
+dl_vlan_pcp=<priority>
+#+end_src
+
+匹配IEEE 802.1Q Priority Code Point(PCP, 优先级代码点)为<priority>的数据包，改值取值区间为[0-7]。数字越大，表示优先级越高。
+
+*** dl_src & dl_dst
+
+#+begin_src sh
+dl_src=xx:xx:xx:xx:xx:xx
+dl_dst=xx:xx:xx:xx:xx:xx
+#+end_src
+
+匹配源和目标MAC地址。
+
+#+begin_src sh
+dl_src=xx:xx:xx:xx:xx:xx/xx:xx:xx:xx:xx:xx
+dl_dst=xx:xx:xx:xx:xx:xx/xx:xx:xx:xx:xx:xx
+#+end_src
+
+匹配源和目的MAC地址。其中"/"后面的为掩码。比如说，如果掩码是：
+
+ * `01:00:00:00:00:00` 只匹配组播MAC (第一个字节LSB为1的MAC地址为MAC组播地址)
+ * `fe:ff:ff:ff:ff:ff` 匹配其他所有MAC，除了组播MAC
+ * `ff:ff:ff:ff:ff:ff` 完全匹配掩码前的MAC，和省掉掩码的效果一样
+ * `00:00:00:00:00:00` 完全通配，相当于(dl_dst=*)
+
+*** dl_type
+
+#+begin_src sh
+dl_type=<ethertype>
+#+end_src
+
+匹配L2(Data Link Layer) header中的协议类型<ethertype>，该字段描述L3的类型。有效值区间[0, 65535]，可以是十进制数或者是以"0x"开头的十六进制数。比如：
+
+ * `dl_type=0x0800` 匹配IP数据包
+ * `dl_type=0x0806` 匹配ARP数据包
+ * `dl_type=0x8035` 匹配RARP数据包
+
+
+!!! note "Note"
+    需要说明的是 dl_type=0x0800 可以用关键字 ip 代替。
+    而 dl_type=0x0806 可以用关键字 arp 代替。dl_type=0x8035 可以用关键字 rarp 代替。
+    
+*** nw_src & nw_dst
+
+#+begin_src sh
+nw_src=<ip[/netmask]>
+nw_dst=<ip[/netmask]>
+#+end_src
+
+当使用了 `dl_type=0x0800` 或者关键字 `ip` 或 `tcp` 时，`nw_src` 和 `nw_dst`分配匹配IP头中的源IP地址和目的IP地址。其中**netmask**可以是`255.255.255.0`这样的(dotted quad)形式，也可以是数字 `24` 这样的(CIDR)形式
+
+当使用了 `dl_type=0x0806` 或者关键字 `arp` 时，`nw_src` 匹配 ARP 头中的 **ar_spa**(Sender Protocol Address)字段。`nw_dst` 匹配ARP头中的 **ar_tpa**(Target Protocol Address)字段
+
+当使用了 `dl_type=0x8035` 或者关键字 `rarp` 时，`nw_src`匹配 RARP 头中的 **ar_spa**(Sender Protocol Address)字段。`nw_dst`匹配RARP头中的 **ar_tpa**(Target Protocol Address)字段
+
+当 `dl_type` 使用了通配符或者除了`0x0800`, `0x0806`, `0x8035`以外的值，则`nw_src`, `nw_dst`的值会被忽略
+
+*** nw_proto or ip_proto
+
+#+begin_src sh
+nw_proto=<proto>
+ip_proto=<proto>
+#+end_src
+
+ * 当`dl_type=0x0800`或使用了关键字`ip`时，匹配IP头中的proto字段，取值区间[0, 255]，比如为1时可以匹配ICMP数据包，为6时匹配TCP数据包。
+ * 当`dl_type=0x86dd`或使用了关键字`ipv6`是，匹配IPv6头中的proto字段，取值区间[0, 255]，比如为58时匹配ICMPv6数据包，为6时匹配TCP数据包
+ * 当`dl_type=0x0806`或者使用了关键字`arp`时，匹配ARP opcode的低8位，ARP opcode大于255时，与等于0效果一样
+ * 当`dl_type=0x8035`或者使用了关键字`rarp`时，匹配ARP opcode的低8位， ARP opcode大于255时，与等于0效果一样
+ * 当`dl_type`使用了通配符或这除了`0x0800`, `0x0806`, `0x8035`以外的值，则`nw_proto`的值会被忽略
+
+*** nw_tos
+
+#+begin_src sh
+nw_tos=<tos>
+#+end_src
+
+匹配IP ToS字段或IPv6的traffic class字段取值为`<toc>`的数据包。取值区间[0, 255]，需要注意的是最低2位会被忽略。当`dl_type`使用除0x800(IP)和0x86dd(IPv6)以为的数值时，该字段被忽略。
+
+*** ip_dscp
+
+#+begin_src sh
+ip_dscp=<dscp>
+#+end_src
+
+匹配IP DSCP字段或IPv6的traffic class字段取值为`<dscp>`的数据包。IP ToS字段的高6位为DSCP比特位。取值区间[0, 63]，需要注意的是最低2位会被忽略。当`dl_type`使用除0x800(IP)和0x86dd(IPv6)以为的数值时，该字段被忽略。
+
+*** nw_ecn or ip_ecn
+
+#+begin_src sh
+nw_ecn=<ecn>
+ip_ecn=<ecn>
+#+end_src
+
+匹配IP ToS字段或IPv6的traffic class字段中ecn比特位为`<ecn>`的数据包。IP ToS字段的低2位为ECN比特位。取值区间[0, 3]。当`dl_type`使用除0x800(IP)和0x86dd(IPv6)以为的数值时，该字段被忽略。
+
+*** nw_ttl
+
+#+begin_src sh
+nw_ttl=<ttl>
+#+end_src
+
+匹配IP和IPv6的TTL字段为<ttl>的数据包。取值区间[0, 255]。当`dl_type`使用除0x800(IP)和0x86dd(IPv6)以为的数值时，该字段被忽略。
+
+*** tcp / udp / sctp port
+
+#+begin_src sh
+tcp_src=<port>
+tcp_dst=<port>
+udp_src=<port>
+udp_dst=<port>
+sctp_src=<port>
+sctp_dst=<port>
+#+end_src
+
+匹配TCP, UDP, SCTP 源或目的端口为`<port>`的数据包。取值区间[0, 65535]。当`dl_type`以及`nw_proto`使用了通配符或者设置了不合理的值，该字段被忽略。
+
+
+#+begin_src sh
+tcp_src=<port/mask>
+tcp_dst=<port/mask>
+udp_src=<port/mask>
+udp_dst=<port/mask>
+sctp_src=<port/mask>
+sctp_dst=<port/mask>
+#+end_src
+
+按位匹配TCP, UDP, SCTP源或目的端口。
+
+*** tcp flags
+
+#+begin_src sh
+tcp_flags=<flags>/<mask>
+tcp_flags=[+<flag>...][-<flag...>]
+#+end_src
+
+按位匹配TCP flags。其中<flags>和<mask>都是16bit数字，可以使十进制的形式或者是以"0x"开头的十六进制形式。<mask>中为1的bit，要求<flags>中对应bit必须匹配。<mask>中为0的bit，<flags>中的对应bit在进行匹配时会忽略。
+
+除了按位匹配TCP flags外，也可以flag的名称（见下）来进行描述匹配规则。每个flag名称前面的"+"表示匹配设置了该flag的数据包，而"-"表示匹配未设置该flag的数据包。规则中未提及的flag在匹配时忽略。比如 `tcp,tcp_flags=+syn-ack` 表示匹配SYN但非ACK的TCP数据包。
+
+目前TCP协议中定义了9个flag位，3个额外的保留位（必须设置成0）。这些 flag 从 LSB（最低有效位）开始的排序如下：
+
+ - `0`: `fin` 表示发送方没有数据要传输了，要去释放连接
+ - `1`: `syn` 同步序列数
+ - `2`: `rst` 重置连接
+ - `3`: `psh` Push功能，指示接收方应该加快将这个报文段交给应用层而不用等待缓冲区装满
+ - `4`: `ack` ACK
+ - `5`: `urg` 表示高优先级数据包
+ - `6`: `ece` ECN Echo
+ - `7`: `cwr` Congestion Windows Reduced
+ - `8`: `ns` Nonce Sum
+ - `9-11`: 保留位
+ - `12-15`: 不可用于匹配，必须设为0
+
+*** icmp_type & icmp_code
+
+#+begin_src sh
+icmp_type=<type>
+icmp_code=<code>
+#+end_src
+
+当 `dl_type` 和 `nw_proto` 确定数据包为 ICMP 或 ICMPv6 时，匹配 ICMP type 和 code。取值区间都为[0, 255]。如果 `dl_type` 和 `mw_proto` 使用了其他值时，该字段忽略。
+
+*** 协议关键字
+
+协议关键字相当于是个*alias*，对应如下：
+
+#+begin_src text
+ip     =  dl_type=0x0800
+ipv6   =  dl_type=0x86dd
+icmp   =  dl_type=0x0800,nw_proto=1
+icmp6  =  dl_type=0x86dd,nw_proto=58
+tcp    =  dl_type=0x0800,nw_proto=6
+tcp6   =  dl_type=0x86dd,nw_proto=6
+udp    =  dl_type=0x0800,nw_proto=17
+udp6   =  dl_type=0x86dd,nw_proto=17
+sctp   =  dl_type=0x0800,nw_proto=132
+sctp6  =  dl_type=0x86dd,nw_proto=132
+arp    =  dl_type=0x0806
+rarp   =  dl_type=0x8035
+mpls   =  dl_type=0x8847
+mplsm  =  dl_type=0x8848
+#+end_src
+
+*** cookie
+
+#+begin_src sh
+cookie=<value>
+#+end_src
+
+cookie 字段可以用于
+命令`add-flow`， `add-flows`和 `mod-flows`中可以使用该字段，用于给 flow 设置识别信息。
+
+#+begin_src sh
+cookie=<value/mask>
+#+end_src
+
+*** actions
+
+ovs-ofctl的 `add-flow`, `add-flows` 以及 `mod-flows` 命令都需要 **actions** 字段，描述对匹配的数据包执行的动作
+
+在上述的三条命令中，actions字段是flow的一部分，actions字段中**可以有多个 action**，它们之间用逗号隔开，一个flow的完整语法如下:
+
+#+begin_src sh
+<field>=<value>,[<field>=<value>]...,actions=<action>[,<action>...]
+#+end_src
+
+可使用的**action**非常多。如下：
+
+**** output
+
+#+begin_src sh
+output:<port>
+#+end_src
+
+将数据包输出到OpenFlow port `<port>`
+
+**** group
+
+#+begin_src sh
+group:<group_id>
+#+end_src
+
+将数据包输出到OpenFlow group `<group_id>`
+
+**** normal
+
+#+begin_src sh
+normal
+#+end_src
+
+按照设备的常规L2/L3处理流程来处理数据包。这通常是OVS默认flow中的action。要注意的是，并不是所有的OpenFlow switch都支持这个action。
+
+**** flood
+
+#+begin_src sh
+flood
+#+end_src
+
+将数据包输出到所有物理端口，除了该数据包的输入口以及不可被flooding的端口。
+
+**** all
+
+#+begin_src sh
+all
+#+end_src
+
+将数据包输出到所有物理端口，除了该数据包的输入口。
+
+**** local
+
+#+begin_src sh
+local
+#+end_src
+
+将数据包输出到local port（与bridge同名的端口）
+
+**** in_port
+
+#+begin_src sh
+in_port
+#+end_src
+
+将数据包输出到其输入口
+
+**** controller
+
+#+begin_src sh
+controller(<key>=<value>...)
+#+end_src
+
+将数据包以"packet in"消息的形式发送到OpenFlow控制器。其中`<key>=<value>`键值对可以是：
+
+ * `max_len=<nbytes>` 只将数据包的<nbytes>个字节发送到控制器。默认发送这个数据包。
+ * `reson=<reason>` 指明"pakcet in"消息中的reason字段。默认reason为`action`，还可以是`no_match`, `invalid_ttl`。
+ * `id=<controller-id>`  指明控制器id，16位整数。表示要发送给那个控制器。默认使用的id是0.
+
+#+begin_src sh
+controller
+controller[:nbytes]
+#+end_src
+
+分别是`controller()`和`controller(max_len=<nbytes>)`的简略写法。
+
+**** enqueue
+
+#+begin_src sh
+enqueue(<port>,<queue>)
+#+end_src
+
+将数据包放到端口<port>的队列<queue>中。其中<port>必须是OpenFlow端口号或关键字(如"LOCAL")。不同交换机支持的队列数不同，有些OpenFlow实现根本不支持队列。
+
+**** drop
+
+#+begin_src sh
+drop
+#+end_src
+
+丢掉该数据包。
+
+**** vlan
+
+#+begin_src sh
+mod_vlan_vid:<vlan_vid>
+#+end_src
+
+修改数据包的VLAN id为<vlan_vid>。如果数据包没有VLAN tag则添加VLAN id为<vlan_vid>的VLAN tag。如果数据包VLAN id已经为<vlan_vid>，则将其VLAN 优先级priority设为0.
+
+#+begin_src sh
+mod_vlan_pcp:<vlan_pcp>
+#+end_src
+
+修改数据包的VLAN 优先级priority为<vlan_pcp>。如果数据包没有VLAN tag则添加VLAN priority为<vlan_pcp>的VLAN tag。合法值区间为[0, 7]，数字越大优先级越高。如果数据包VLAN priority已经为<vlan_pcp>，则将其VLAN id设为0.
+
+#+begin_src sh
+strip_vlan
+#+end_src
+
+如果数据包有VLAN tag，则剥去VLAN tag。
+
+#+begin_src sh
+push_vlan:<ethertype>
+#+end_src
+
+给数据包添加新的VLAN tag。VLAN tag中ethertype设置为<ethertype>。目前<ethertype>只能是0x8100。新Tag的priority为0，vid为0.
+
+**** mpls
+
+#+begin_src sh
+push_mpls:<ethertype>
+#+end_src
+
+将数据包的Ethertype改成`<ethertype>`，只能是`0x8847`或者`0x8848`，同时添加MPLS LSE。
+
+
+#+begin_src sh
+pop_mpls:<ethertype>
+#+end_src
+
+**** datalink header mod
+
+剥去数据包**最外层**的一个MPLS lable stack。目前的实现中`<ethertype>`只能是non-MPLS Ethertype，所以`pop_mpls`只能用于只有一层MPLS lable stack的数据包。
+
+#+begin_src sh
+mod_dl_src:<mac>
+mod_dl_dst:<mac>
+#+end_src
+
+将数据包的源或目的MAC地址设置成<mac>
+
+**** network header mod
+
+#+begin_src sh
+mod_nw_src:<ip>
+mod_nw_dst:<ip>
+#+end_src
+
+将数据包的源或目的IP地址设置成<ip>
+
+#+begin_src sh
+mod_nw_tos:<tos>
+#+end_src
+
+设置IPv4头ToS/DSCP或IPv6头traffic class field中DSCP比特位设置成<tos>，数值必须是4的倍数，且在[0, 255]区间。这个action并不会修改ToS中的低2位(2 LSB)。
+
+#+begin_src sh
+mod_nw_ecn:<ecn>
+#+end_src
+
+设置IPv4头ToS或IPv6头traffic class field中ECN比特位为`<ecn>`，数值区间为[0, 3]。这个action并不会修改高6位(6 MSB)。
+
+需要OpenFLow 1.1以上。
+
+#+begin_src sh
+mod_nw_ttl:<ttl>
+#+end_src
+
+修改IPv4 TTL或IPv6 hop limit为<ttl>，取值区间为[0, 255]。
+
+需要OpenFlow 1.1以上。
+
+**** transport header mod
+
+#+begin_src sh
+mod_tp_src:<port>
+mod_tp_dst:<port>
+#+end_src
+
+将数据包的TCP/UDP/SCTP源或目的端口设置成<port>
+
+*** Examples
+
+*** VLAN相关
+
+#+begin_src sh
+# 添加VLAN tag
+ovs-ofctl add-flow br0 in_port=1,actions=mod_vlan_vid:10,output:2
+
+# 剥去VLAN tag
+ovs-ofctl add-flow br0 in_port=2,dl_vlan=100,actions=strip_vlan,output:1
+#+end_src
+
+*** 使用cookie
+
+#+begin_src sh
+# add a flow
+ovs-ofctl add-flow br0 cookie=0xf,tcp,tcp_dst=22,actions=mod_nw_tos:128,normal
+
+# To delte this flow
+ovs-ofctl del-flows br0 cookie=0xf/-1,tcp,tcp_dst=22
+# Or simply
+ovs-ofctl del-flows br0 cookie=0xf/-1
+
+# trace a flow
+ovs-appctl ofproto/trace br0 tcp,tcp_dst=22
+#+end_src
+    
+* ovs-dpctl
+
+* ovs-appctl
