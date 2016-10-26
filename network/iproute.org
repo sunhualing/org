@@ -2,7 +2,7 @@
 #+OPTIONS:   H:4 toc:t num:3
 
 #+PROPERTY:  header-args :padline no
-#+SETUPFILE: ../setup/theme-readtheorg.setup
+#+SETUPFILE: ../setup/theme-readtheorg-local.setup
 
 * iptables Cheatsheet
 

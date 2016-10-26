@@ -1,0 +1,201 @@
+#+TITLE: Docker 常用命令
+#+DATE: 20161017
+#+OPTIONS:   H:4 toc:t num:3
+
+#+PROPERTY:  header-args :padline no
+#+SETUPFILE: ../setup/theme-readtheorg-local.setup
+
+* 总结
++ 容器生命周期管理 — docker [run|start|stop|restart|kill|rm|pause|unpause]
++ 容器操作运维 — docker [ps|inspect|top|attach|events|logs|wait|export|port]
++ 容器rootfs命令 — docker [commit|cp|diff]
++ 镜像仓库 — docker [login|pull|push|search]
++ 本地镜像管理 — docker [images|rmi|tag|build|history|save|import]
++ 其他命令 — docker [info|version]
+[[https://segmentfault.com/a/1190000000751601][docker常用管理命令（上）]]
+
+[[../gui/docker-cmd.png][Docker的关系图]]
+
+* 操作容器
+
+** 启动容器
+#+BEGIN_SRC text
+docker run命令首先会从特定的image之上create一层可写的container，然后通过start命令来启动它。
+停止的container可以重新启动并保留原来的修改。run命令启动参数有很多，以下是一些常规使用说明，
+更多部分请参考http://www.cnphp6.com/archives/24899
+当利用 docker run 来创建容器时，Docker 在后台运行的标准操作包括：
+检查本地是否存在指定的镜像，不存在就从公有仓库下载
+利用镜像创建并启动一个容器
+分配一个文件系统，并在只读的镜像层外面挂载一层可读写层
+从宿主主机配置的网桥接口中桥接一个虚拟接口到容器中去
+从地址池配置一个 ip 地址给容器
+执行用户指定的应用程序
+执行完毕后容器被终止
+#+END_SRC
++ 启动容器并启动bash（交互方式）:
+#+BEGIN_SRC sh
+$docker run -i -t <image_name/continar_id> /bin/bash
+#+END_SRC
+
++ 启动容器以后台方式运行(更通用的方式）：
+#+BEGIN_SRC sh
+$docker run -d -it  image_name
+ps：这里的 image_name 包含了tag：hello.demo.kdemo:v1.0
+#+END_SRC
+
+** attach到容器
+
++ Attach到正在运行的容器
+#+BEGIN_SRC sh
+docker attach <id、container_name>
+#+END_SRC
++ 进入正在运行的容器内部，同时运行bash(比attach更好用)
+#+BEGIN_SRC sh
+docker exec -t -i <id/container_name>  /bin/bash
+ps：docker exec是如此的有用，以至于我们通常是将其封装为一个脚本，放到全局可调用的地方，比如，可以写成一个indocker.sh：
+$cat indocker.sh 
+docker exec -t -i $1 /bin/bash
+#+END_SRC
+
+
++ 查看需要Attach的容器id
+#+BEGIN_SRC sh
+$docker ps | less -S
+CONTAINER ID        IMAGE                                                 
+9cf7b563f689        hello.demo.kdemo:v160525.202747
+$./indocker.sh 9cf7b563f689 
+#+END_SRC
+
+** 查看容器日志
++ 查看容器日志
+#+BEGIN_SRC sh
+docker logs <id/container_name>
+#+END_SRC
+
++ 实时查看日志输出
+#+BEGIN_SRC sh
+docker logs -f <id/container_name> (类似 tail -f) (带上时间戳-t）
+#+END_SRC
+
+** 查看容器
+
++ 列出当前所有正在运行的container
+#+BEGIN_SRC sh
+$docker ps
+#+END_SRC
+
++ 用一行列出所有正在运行的container（容器多的时候非常清晰）
+#+BEGIN_SRC sh
+$docker ps | less -S
+#+END_SRC
+
++ 列出所有的container
+#+BEGIN_SRC sh
+$docker ps -a  
+#+END_SRC
+
++ 列出最近一次启动的container
+#+BEGIN_SRC sh
+$docker ps -l 
+#+END_SRC
+
++ 显示一个运行的容器里面的进程信息
+#+BEGIN_SRC sh
+$docker top Name/ID  
+#+END_SRC
+
++ 查看容器内部详情细节：
+#+BEGIN_SRC sh
+$docker inspect <id/container_name>
+#+END_SRC
+
+
+** 容器中的操作
++ 在容器中安装新的程序
+#+BEGIN_SRC sh
+$docker run image_name apt-get install -y app_name  
+Note： 在执行apt-get 命令的时候，要带上-y参数。如果不指定-y参数的话，apt-get命令会进入交互模式，需要用户输入命令来进行确认，但在docker环境中是无法响应这种交互的。apt-get 命令执行完毕之后，容器就会停止，但对容器的改动不会丢失。
+#+END_SRC
+
++ 从容器里面拷贝文件/目录到本地一个路径
+#+BEGIN_SRC sh
+$docker cp Name:/container_path to_path  
+$docker cp ID:/container_path to_path
+#+END_SRC
+
++ 保存对容器的修改（commit） 当你对某一个容器做了修改之后（通过在容器中运行某一个命令），可以把对容器的修改保存下来，这样下次可以从保存后的最新状态运行该容器。
+#+BEGIN_SRC sh
+$docker commit ID new_image_name  
+Note： image相当于类，container相当于实例，不过可以动态给实例安装新软件，然后把这个container用commit命令固化成一个image。
+#+END_SRC
+
+** 删除容器
++ 删除单个容器
+#+BEGIN_SRC sh
+$docker rm Name/ID 
+-f, –force=false; -l, –link=false Remove the specified link and not the underlying container; -v, –volumes=false Remove the volumes associated to the container
+#+END_SRC
+
++ 删除所有容器
+#+BEGIN_SRC sh
+$docker rm `docker ps -a -q`  
+#+END_SRC
++ 停止、启动、杀死、重启一个容器
+#+BEGIN_SRC sh
+$docker stop Name/ID  
+$docker start Name/ID  
+$docker kill Name/ID  
+$docker restart name/ID
+#+END_SRC
+
+
+* 操作Image
+
+** 列出镜像
+#+BEGIN_SRC sh
+$sudo docker images
+-a, –all=false Show all images; –no-trunc=false Don’t truncate output; -q, –quiet=false Only show numeric IDs
+其中我们可以根据REPOSITORY来判断这个镜像是来自哪个服务器，如果没有 / 则表示官方镜像，
+类似于username/repos_name表示Github的个人公共库，类似于regsistory.example.com:5000/repos_name则表示的是私服。
+IMAGE ID列其实是缩写，要显示完整则带上--no-trunc选项
+#+END_SRC
+#+BEGIN_SRC sh
+
+从dockerhub检索image
+$docker search image_name
+下载image
+$docker pull image_name
+删除一个或者多个镜像;
+$docker rmi image_name  
+-f, –force=false Force; –no-prune=false Do not delete untagged parents
+
+显示一个镜像的历史;
+$docker history image_name
+发布docker镜像
+$docker push new_image_name
+ps:要发布到私有Registry中的镜像，在镜像命名中需要带上Registry的域名（如果非80端口，同时需要带上端口号）比如：
+
+$docker push dockerhub.yourdomain.com:443/hello.demo.kdemo:v1.0
+拉取docker镜像
+$docker pull image_name
+#+END_SRC
+
+* 网络操作
+#+BEGIN_SRC sh
+查看docker0的网络(宿主机上操作)
+$ip a show docker0
+查看容器的IP地址
+$docker inspect -f '{{ .NetworkSettings.IPAddress }}' <id、container_name>
+Attach到容器内部查看其内部ip：
+
+$ip a show eth0
+查看docker基础信息
+
+查看docker版本
+
+$docker version
+
+查看docker系统的信息
+
+$docker info
+#+END_SRC

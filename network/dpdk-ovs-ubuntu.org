@@ -1,0 +1,119 @@
+#+TITLE: Using Open vSwitch* with DPDK on Ubuntu*
+
+#+DATE: 20161017
+#+OPTIONS:   H:4 toc:t num:3
+
+#+PROPERTY:  header-args :padline no
+#+SETUPFILE: ../setup/theme-readtheorg-local.setup
+
+[[https://github.com/openvswitch/ovs/blob/master/INSTALL.DPDK.md][OVS的官网说明]]
+[[../gui/dpdk-ovs-ubuntu.png][ubuntu上的OVS示意图]]
+
+OVS现在作为一个标准的模块，不一定要使用自编译安装，但在使用标准安装的时候，要注意相关配置的文件。
+还有OVS的功能和用法还在不断的演进，前面还用的配置，说不定过多久就不能用。注意针对不同版本的配置不一样。
+
+* 安装
+** 标准安装
+ubuntu中使用了一种符号链接的方法,update-alternatives，这样更新版本非常方便。
+#+BEGIN_SRC sh
+sudo apt-get install openvswitch-switch-dpdk
+sudo update-alternatives --set ovs-vswitchd /usr/lib/openvswitch-switch-dpdk/ovs-vswitchd-dpdk
+如果报这种错误，说明以前安装过，导致无法用符号来代替
+root@node-10:~# sudo update-alternatives --set ovs-vswitchd /usr/lib/openvswitch-switch-dpdk/ovs-vswitchd-dpdk
+update-alternatives: warning: forcing reinstallation of alternative /usr/lib/openvswitch-switch-dpdk/ovs-vswitchd-dpdk because link group ovs-vswitchd is broken
+update-alternatives: warning: not replacing /usr/sbin/ovs-vswitchd with a link
+#+END_SRC
+** 编译安装
+*** DPDK的安装
+#+BEGIN_SRC text
+	* tar -xvf dpdk-16.04.tar.xz
+	* cd dpdk-16.04
+	* export DPDK_DIR=`pwd`
+	* sed 's/CONFIG_RTE_BUILD_COMBINE_LIBS=n/CONFIG_RTE_BUILD_COMBINE_LIBS=y/' -i config/common_linuxapp
+	* make config T=x86_64-ivshmem-linuxapp-gcc
+	* cd build
+	* EXTRA_CFLAGS="-g -Ofast" make -j10
+	* EXTRA_CFLAGS="-g -Ofast" make install -j10
+#+END_SRC
+*** OVS的安装
+#+BEGIN_SRC text
+	* cd /home/user/ovs
+	* export OVS_DIR=`pwd`
+	* ./boot.sh
+	* ./configure --with-dpdk="$DPDK_DIR/build/" CFLAGS="-g -Ofast"
+	* make 'CFLAGS=-g -Ofast -march=native' -j10
+#+END_SRC
+* 配置
+** 基本流程
++ service启动，这个脚本是/etc/init.d/openvswitch-switch中定义的各种行为start/stop/restart/status等
++ service中的各个动作都是由ovs-ctl这个脚本来完成的，这个脚本在/usr/share/openvswitch/scripts/ovs-ctl
++ ovs_ctl到ovs-ctl的翻译是在ovs-lib这个脚本来完成的。
++ service中会调用/etc/default/openvswitch-switch,后者会调用/etc/init.d/dpdk,来做DPDK相应的初始化动作。
++ /etc/init.d/dpdk会掉用/lib/dpdk/dpdk-init来完成相应的初始化动作,包括绑定网卡，mount hugepage设备等
++ dpdk脚本是由dpdk这个安装包安装的。
+** 基本配置
++ /etc/default/openvswitch-switch – Passes in DPDK command-line options to ovs-vswitchd
++ /etc/dpdk/dpdk.conf – Configures hugepages
++ /etc/dpdk/interfaces – Configures/assigns NICs for DPDK use
+  
+** HugePage
+#+BEGIN_SRC sh
+1. 编辑/etc/default/grub文件，在GRUB_CMDLINE_LINUX之后添加关于hugepage和isocpu的内容
+default_hugepagesz=1G  hugepagesz=2M hugepages=6144 hugepagesz=1G hugepages=5 isolcpus=0,8,9,16,24 
+2. 生成grub文件 
+grub-mkconfig -o /boot/grub/grub.cfg
+3. 重启
+reboot
+4. mount
+$sudo mount -t hugetlbfs -o pagesize=1G none /dev/hugepages
+#+END_SRC
+** DPDK的配置
+新版本的ovs使用DPDK_OPTS来传递DPDK的参数，这个参数通过什么样的途径传递给ovs-vswitchd是个问题
+这样意味着/etc/default/openvswitch-switch文件中要输出DPDK_OPTS,在ovs-ctl中使用这个参数
+** ovs
+#+BEGIN_SRC sh
+echo "DPDK_OPTS='--dpdk -c 0x1 -n 4 -m 2048 --vhost-owner libvirt-qemu:kvm --vhost-perm 0664'" | sudo tee -a /etc/default/openvswitch-switch
+sudo service openvswitch-switch restart
+#+END_SRC
+   
+** 一个简单的例子
+#+BEGIN_SRC text
+sudo ovs-vsctl add-br br0 -- set bridge br0 datapath_type=netdev
+sudo ovs-vsctl add-port br0 vhost-user1 -- set Interface vhost-user1 type=dpdkvhostuser
+sudo ovs-vsctl add-port br0 vhost-user2 -- set Interface vhost-user2 type=dpdkvhostuser
+ovs-vsctl add-br ovsdpdkbr0 -- set bridge ovsdpdkbr0 datapath_type=netdev
+ovs-vsctl add-port ovsdpdkbr0 dpdk0 -- set Interface dpdk0 type=dpdk
+#+END_SRC
+* 运行
+** Using DPDK vhost-user ports with VMs
+#+BEGIN_SRC sh
+sudo sh -c "echo 1200 > /proc/sys/vm/nr_hugepages"
+sudo qemu-system-x86_64 -m 512 -smp 4 -cpu host -hda /home/user/f21vm1c1.qcow2 -boot c -enable-kvm -no-reboot -nographic -net none \
+-chardev socket,id=char1,path=/run/openvswitch/vhost-user1 \
+-netdev type=vhost-user,id=mynet1,chardev=char1,vhostforce \
+-device virtio-net-pci,mac=00:00:00:00:00:01,netdev=mynet1 \
+-object memory-backend-file,id=mem,size=512M,mem-path=/dev/hugepages,share=on -numa node,memdev=mem -mem-prealloc
+
+sudo qemu-system-x86_64 -m 512 -smp 4 -cpu host -hda /home/user/f21vm1c2.qcow2 -boot c -enable-kvm -no-reboot -nographic -net none \
+-chardev socket,id=char1,path=/run/openvswitch/vhost-user2 \
+-netdev type=vhost-user,id=mynet1,chardev=char1,vhostforce \
+-device virtio-net-pci,mac=00:00:00:00:00:02,netdev=mynet1 \
+-object memory-backend-file,id=mem,size=512M,mem-path=/dev/hugepages,share=on -numa node,memdev=mem -mem-prealloc
+#+END_SRC
+
+** DPDK vhost-user inter-VM test case with iperf3
+In the previous step, we configured 2 VMs each with a virtio NIC that is connected to OVS-DPDK bridge. 
+After the VMs are powered-up, check the VM to ensure the NIC is properly initialized:
+** 运行
+service openvswitch-switch start/restart/stop/status
+* 重要参数
+** ovs-vswitchd的重要参数
++ 分配大页内存资源
+#+BEGIN_SRC text
+--socket-mem=64 指定仅仅分配64M的内存在socket 0上。
+如果不指定–socket-mem 默认就是分配预留的全部page。
+如果想同时在socket0和socket1上分配内存，可以中间用逗号隔开，但是两个数字中间不能有空格，如果指定0表示当前的socket上不分配内存。
+
+比如： 想在socket0上分配32M，想在socket1上分配16M内存，每个pagesize是2M，可以通过sock-mem来指定。
+/build/helloworld -c f -n 4 --socket-mem=32,64
+#+END_SRC

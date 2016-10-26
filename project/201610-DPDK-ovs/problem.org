@@ -1,0 +1,91 @@
+#+TITLE: 项目中碰到的问题和解决方法
+#+DATE: 20161018
+#+OPTIONS:   H:4 toc:t num:3
+
+#+PROPERTY:  header-args :padline no
+#+SETUPFILE: ../../setup/theme-readtheorg-local2.setup
+
+* vm can not get ip through dhcp
+** Neutron网络分析
+   [[../../gui/neutron-network.jpg]]
+   这里面用到了三个OVS bridge, br-floating(public internet)/br-int(Host内部集成网络)/br-prv(离开host前的一个OVS)
+
+** 实际网络数据
+*** 控制节点的数据
+
+ *从OVS的角度看数据
+#+begin_src text
+root@node-9:~# ovs-vsctl show
+fbd1a874-093c-4ac1-9f26-2a8709460cef
+    Bridge br-int
+        fail_mode: secure
+        Port "tap0de82dcc-28"
+            tag: 1
+            Interface "tap0de82dcc-28"
+                type: internal
+        Port "qr-8cbd374a-53"
+            tag: 1
+            Interface "qr-8cbd374a-53"
+                type: internal
+        Port "qg-9d3cb46a-8c"
+            tag: 2
+            Interface "qg-9d3cb46a-8c"
+                type: internal
+        Port br-int
+            Interface br-int
+                type: internal
+        Port int-br-prv
+            Interface int-br-prv
+                type: patch
+                options: {peer=phy-br-prv}
+        Port int-br-floating
+            Interface int-br-floating
+                type: patch
+                options: {peer=phy-br-floating}
+    Bridge br-prv
+        Port phy-br-prv
+            Interface phy-br-prv
+                type: patch
+                options: {peer=int-br-prv}
+        Port "p_e52381cd-0"
+            Interface "p_e52381cd-0"
+                type: internal
+        Port br-prv
+            Interface br-prv
+                type: internal
+    Bridge br-floating
+        Port "p_ff798dba-0"
+            Interface "p_ff798dba-0"
+                type: internal
+        Port phy-br-floating
+            Interface phy-br-floating
+                type: patch
+                options: {peer=int-br-floating}
+        Port br-floating
+            Interface br-floating
+                type: internal
+    ovs_version: "2.4.1"
+#+end_src
+ *从Linux bridge的角度看数据
+#+begin_src text
+root@node-9:~# brctl show
+bridge name     bridge id               STP enabled     interfaces
+br-aux          8000.56a6ef5392c3       no              ens1f0
+                                                        p_e52381cd-0
+br-ex           8000.2a222b610a67       no              eno2
+                                                        p_ff798dba-0
+                                                        v_public
+                                                        v_vrouter_pub
+br-fw-admin             8000.40a8f0248b9c       no              eno1
+br-mgmt         8000.16fc278df214       no              eno2.103
+                                                        mgmt-conntrd
+                                                        v_management
+                                                        v_vrouter
+br-storage              8000.40a8f0248b9d       no              eno2.104
+#+end_src
+ *真实的网卡和状态
+| 网卡名字 | IP地址 | VLAN | 状态 |
+|----------+--------+------+------|
+| ens1f0   | NA     | NA   | UP   |
+|----------+--------+------+------|
+| ens1f1   | NA     | NA   | Down |

@@ -15,7 +15,7 @@ Open vSwitch中有多个命令，分别有不同的作用，大致如下：
  * `ovs-ofctl`用于管理OpenFlow switch 的 flow
  * `ovs-dpctl`用于管理ovs的datapath
  * `ovs-appctl`用于查询和管理ovs daemon
-
+本文介绍这些命令的用法。
 * ovs-vsctl
  主要介绍`ovs-vsctl`。以下命令查询主机上已有的 OVS bridge，以及其中的 port。
 
