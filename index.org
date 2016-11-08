@@ -10,6 +10,8 @@
      + [[file:network/iproute2.org][2016-10-18 iproute2 useage]]
      + [[file:network/iproute.org][2016-10-18 iptables Cheatsheet]]
      + [[file:network/README.org][2016-10-18 How to export Org mode files into awesome HTML in 2 minutes]]
+   + web
+     + [[file:web/index.org][2016-11-08 我们的实验室资源]]
    + project
      + 201610-DPDK-ovs
        + [[file:project/201610-DPDK-ovs/problem.org][2016-10-19 项目中碰到的问题和解决方法]]
