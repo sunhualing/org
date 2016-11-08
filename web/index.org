@@ -3,7 +3,7 @@
 #+OPTIONS:   H:4 toc:t num:3
 
 #+PROPERTY:  header-args :padline no
-#+SETUPFILE: ../setup/theme-readtheorg-local.setup
+#+SETUPFILE: ../setup/theme-readtheorg-local-up.setup
 
 
 * 公司资源
@@ -20,8 +20,9 @@
 - [[http://www.ourlab.xin/][实验室资源主页]]
 - [[http://git.nokiaio.com/users/sign_in][gitLab 私有的git服务器]]
 - [[http://notes.nokiaio.com/][韩海山笔记]]
-- [[ubuntu.ourlab.xin][ubuntu的repo源]]
+- [[http://ubuntu.ourlab.xin][ubuntu的repo源]]
 #+BEGIN_SRC text
+如何使用ubuntu的源
 备份sources.list,创建新的sources.list并添加下面的一行到/etc/apt/sources.list中并保存。
 deb http://ubuntu.ourlab.xin/ trusty main restricted universe
 #+END_SRC
